@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, ts: Date.now(), env: { supaUrl: !!SUPABASE_URL, supaKey: !!SUPABASE_KEY } });
+  res.json({ ok: true, ts: Date.now(), env: { supaUrl: !!SUPABASE_URL, supaKey: !!SUPABASE_KEY, supaClient: !!supabase, vercel: !!process.env.VERCEL, region: process.env.VERCEL_REGION || 'unknown' } });
 });
 
 app.get('/api/debug-test', async (req, res) => {
@@ -29,12 +29,20 @@ app.get('/api/debug-test', async (req, res) => {
   res.json(results);
 });
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
 const ADMIN_PASS = process.env.ADMIN_PASS || 'Admin1234@@';
-if (!SUPABASE_URL || !SUPABASE_KEY) { console.error('Set SUPABASE_URL and SUPABASE_SERVICE_KEY env vars'); process.exit(1); }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+let supabase = null;
+try {
+  if (SUPABASE_URL && SUPABASE_KEY) {
+    supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+  } else {
+    console.error('WARNING: SUPABASE_URL or SUPABASE_SERVICE_KEY not set');
+  }
+} catch (e) {
+  console.error('Failed to create Supabase client:', e.message);
+}
 
 function normPath(p) {
   return (p || '').replace(/^\/+|\/+$/g, '');
@@ -202,6 +210,7 @@ function firebaseToRow(data, table) {
 // ── RTDB-compatible CRUD using PostgreSQL ──────────────────
 
 async function rtdbRead(rawPath) {
+  if (!supabase) throw new Error('Supabase not initialized — check env vars');
   const p = normPath(rawPath);
   if (!p) return null;
 
@@ -785,7 +794,9 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+}
 
 module.exports = app;
