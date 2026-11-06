@@ -55,15 +55,19 @@ export function getAuth(app) {
 }
 
 export async function signInWithEmailAndPassword(auth, email, password) {
+  console.log('[AUTH-BRIDGE] signInWithEmailAndPassword called:', email);
   const resp = await fetch(API + '/api/auth/signin', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password })
   });
+  console.log('[AUTH-BRIDGE] signin response status:', resp.status);
   const data = await resp.json();
+  console.log('[AUTH-BRIDGE] signin response data:', JSON.stringify(data).substring(0, 200));
   if (!resp.ok) {
     const err = new Error(data.message || 'Auth failed');
     err.code = data.code || 'auth/unknown';
+    console.log('[AUTH-BRIDGE] signin error:', err.code, err.message);
     throw err;
   }
   const user = { uid: data.uid, email: data.email, getIdToken: () => Promise.resolve(data.token), getIdTokenResult: () => Promise.resolve({ claims: data.claims || {} }), reload: async () => {} };
@@ -80,12 +84,14 @@ export async function signInWithEmailAndPassword(auth, email, password) {
 }
 
 export async function createUserWithEmailAndPassword(auth, email, password) {
+  console.log('[AUTH-BRIDGE] createUserWithEmailAndPassword called:', email);
   const resp = await fetch(API + '/api/auth/create', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password })
   });
   const data = await resp.json();
+  console.log('[AUTH-BRIDGE] create response:', resp.status, JSON.stringify(data).substring(0, 200));
   if (!resp.ok) {
     const err = new Error(data.message || 'Create failed');
     err.code = data.code || 'auth/unknown';

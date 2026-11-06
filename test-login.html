@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="utf-8">
+<title>Test Login</title>
+<style>
+body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background: #1a1a2e; color: #eee; }
+.log { background: #16213e; padding: 10px; margin: 5px 0; border-radius: 4px; font-size: 13px; direction: ltr; text-align: left; }
+.ok { border-left: 3px solid #0f0; }
+.err { border-left: 3px solid #f00; }
+.warn { border-left: 3px solid #ff0; }
+input { padding: 8px; margin: 5px; border-radius: 4px; border: 1px solid #444; background: #16213e; color: #eee; }
+button { padding: 8px 20px; background: #0f3460; color: #eee; border: none; border-radius: 4px; cursor: pointer; }
+button:hover { background: #1a508b; }
+h2 { color: #e94560; }
+</style>
+</head>
+<body>
+<h2>Admin Login Diagnostic</h2>
+<div>
+  <input id="email" placeholder="Email" value="eng@admin.com">
+  <input id="pass" type="password" placeholder="Password" value="eng6969">
+  <button onclick="runTest()">Test Login</button>
+  <button onclick="runBridgeTest()">Test via Bridge</button>
+</div>
+<div id="logs"></div>
+
+<script>
+function log(msg, type) {
+  const d = document.getElementById('logs');
+  const el = document.createElement('div');
+  el.className = 'log ' + (type || '');
+  el.textContent = msg;
+  d.appendChild(el);
+  console.log(msg);
+}
+
+async function runTest() {
+  document.getElementById('logs').innerHTML = '';
+  const email = document.getElementById('email').value;
+  const pass = document.getElementById('pass').value;
+  log('=== Direct API Test ===');
+
+  // Step 1: signin
+  log('Step 1: POST /api/auth/signin');
+  try {
+    const r1 = await fetch('/api/auth/signin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: pass })
+    });
+    const d1 = await r1.json();
+    if (!r1.ok) {
+      log('FAIL: ' + r1.status + ' - ' + JSON.stringify(d1), 'err');
+      return;
+    }
+    log('OK: uid=' + d1.uid + ', token=' + d1.token.substring(0,16) + '...', 'ok');
+    log('Claims: ' + JSON.stringify(d1.claims), 'ok');
+
+    // Step 2: auth state
+    log('Step 2: GET /api/auth/state');
+    const r2 = await fetch('/api/auth/state', {
+      headers: { 'Authorization': 'Bearer ' + d1.token }
+    });
+    const d2 = await r2.json();
+    log('State: ' + JSON.stringify(d2), r2.ok ? 'ok' : 'err');
+
+    // Step 3: read dashboardAccounts
+    const key = email.trim().toLowerCase().replace(/[.#$\[\]]/g, '_');
+    log('Step 3: POST /api/fb/read dashboardAccounts/' + key);
+    const r3 = await fetch('/api/fb/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'dashboardAccounts/' + key })
+    });
+    const d3 = await r3.json();
+    if (d3.value) {
+      log('OK: role=' + d3.value.role + ', status=' + d3.value.status, 'ok');
+    } else {
+      log('WARN: No account found at dashboardAccounts/' + key, 'warn');
+    }
+
+    // Step 4: read dashboardUsers
+    log('Step 4: POST /api/fb/read dashboardUsers/' + key);
+    const r4 = await fetch('/api/fb/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'dashboardUsers/' + key })
+    });
+    const d4 = await r4.json();
+    if (d4.value) {
+      log('OK: role=' + d4.value.role + ', status=' + d4.value.status, 'ok');
+    } else {
+      log('WARN: No account found at dashboardUsers/' + key, 'warn');
+    }
+
+    log('=== All steps passed! API is working. ===', 'ok');
+  } catch(e) {
+    log('ERROR: ' + e.message, 'err');
+  }
+}
+
+async function runBridgeTest() {
+  document.getElementById('logs').innerHTML = '';
+  const email = document.getElementById('email').value;
+  const pass = document.getElementById('pass').value;
+  log('=== Bridge Module Test ===');
+
+  try {
+    log('Loading C8eRkd1N.js (App bridge)...');
+    const appMod = await import('/_nuxt/C8eRkd1N.js');
+    log('OK: getApps=' + typeof appMod.getApps + ', initializeApp=' + typeof appMod.initializeApp, 'ok');
+
+    log('Loading D3cDEAdb.js (Auth bridge)...');
+    const authMod = await import('/_nuxt/D3cDEAdb.js');
+    log('OK: signInWithEmailAndPassword=' + typeof authMod.signInWithEmailAndPassword, 'ok');
+
+    log('Loading B2c1r0a0.js (RTDB bridge)...');
+    const rtdbMod = await import('/_nuxt/B2c1r0a0.js');
+    log('OK: get=' + typeof rtdbMod.get + ', ref=' + typeof rtdbMod.ref, 'ok');
+
+    // Init app
+    log('Initializing app...');
+    const app = appMod.getApps().length ? appMod.getApp() : appMod.initializeApp({});
+    log('App: ' + app.name, 'ok');
+
+    // Get auth
+    log('Getting auth...');
+    const auth = authMod.getAuth(app);
+    log('Auth: ' + typeof auth, 'ok');
+
+    // Sign in
+    log('Calling signInWithEmailAndPassword...');
+    const result = await authMod.signInWithEmailAndPassword(auth, email, pass);
+    log('OK: user.uid=' + result.user.uid + ', email=' + result.user.email, 'ok');
+
+    // Check getIdTokenResult
+    log('Calling getIdTokenResult...');
+    const tokenResult = await result.user.getIdTokenResult(true);
+    log('Claims: ' + JSON.stringify(tokenResult.claims), 'ok');
+
+    // Get database
+    log('Getting database...');
+    const db = rtdbMod.getDatabase(app);
+    log('DB: ' + typeof db, 'ok');
+
+    // Read dashboardAccounts
+    const key = email.trim().toLowerCase().replace(/[.#$\[\]]/g, '_');
+    log('Reading dashboardAccounts/' + key + '...');
+    const dbRef = rtdbMod.ref(db, 'dashboardAccounts/' + key);
+    const snap = await rtdbMod.get(dbRef);
+    if (snap.exists()) {
+      const val = snap.val();
+      log('OK: role=' + val.role + ', status=' + val.status, 'ok');
+    } else {
+      log('WARN: No data at dashboardAccounts/' + key, 'warn');
+    }
+
+    log('=== All bridge tests passed! ===', 'ok');
+  } catch(e) {
+    log('ERROR: ' + e.message, 'err');
+    log('Stack: ' + e.stack, 'err');
+  }
+}
+</script>
+</body>
+</html>

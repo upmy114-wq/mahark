@@ -60,15 +60,17 @@ export function child(parentRef, path) {
 
 export async function get(refObj) {
   try {
+    console.log('[RTDB-BRIDGE] get:', refObj._path);
     const resp = await fetch(API + '/api/fb/read', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: refObj._path })
     });
     const data = await resp.json();
+    console.log('[RTDB-BRIDGE] get result:', refObj._path, data.value ? 'has data' : 'null');
     return new DataSnapshot(refObj, data.value ?? null);
   } catch (e) {
-    console.error('get error:', e);
+    console.error('[RTDB-BRIDGE] get error:', refObj._path, e);
     return new DataSnapshot(refObj, null);
   }
 }
