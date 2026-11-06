@@ -1,5 +1,9 @@
 {
   "version": 2,
+  "headers": [
+    { "source": "/(.*)\\.html", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+    { "source": "/admin(.*)", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] }
+  ],
   "builds": [
     { "src": "api/index.js", "use": "@vercel/node" },
     { "src": "index.html", "use": "@vercel/static" },

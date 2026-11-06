@@ -12,6 +12,23 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, ts: Date.now(), env: { supaUrl: !!SUPABASE_URL, supaKey: !!SUPABASE_KEY } });
 });
 
+app.get('/api/debug-test', async (req, res) => {
+  const results = {};
+  try {
+    const { data, error } = await supabase.from('settings').select('key').limit(1);
+    results.supabase = error ? { error: error.message } : { ok: true, rows: data.length };
+  } catch (e) {
+    results.supabase = { error: e.message };
+  }
+  try {
+    const { data, error } = await supabase.from('settings').select('*').eq('key', 'whatsapp').maybeSingle();
+    results.whatsapp = error ? { error: error.message } : { found: !!data, value: data?.value ?? null };
+  } catch (e) {
+    results.whatsapp = { error: e.message };
+  }
+  res.json(results);
+});
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const ADMIN_PASS = process.env.ADMIN_PASS || 'Admin1234@@';
@@ -238,11 +255,11 @@ async function rtdbRead(rawPath) {
   if (parts.length >= 2) {
     const id = parts[1];
     if (table === 'settings') {
-      const { data, error } = await supabase.from(table).select('*').eq('key', id).single();
+      const { data, error } = await supabase.from(table).select('*').eq('key', id).maybeSingle();
       if (error || !data) return null;
       return data.value;
     }
-    const { data, error } = await supabase.from(table).select('*').eq('id', id).single();
+    const { data, error } = await supabase.from(table).select('*').eq('id', id).maybeSingle();
     if (error || !data) return null;
     const fbData = rowToFirebase(data, table);
 
@@ -316,7 +333,7 @@ async function rtdbSet(rawPath, value) {
   }
 
   // Nested path: read, modify, write back
-  const { data: existing } = await supabase.from(table).select('*').eq('id', id).single();
+  const { data: existing } = await supabase.from(table).select('*').eq('id', id).maybeSingle();
   if (!existing) {
     const newData = {};
     let cur = newData;
@@ -355,7 +372,7 @@ async function rtdbUpdate(rawPath, updates) {
   const expanded = expandSlashKeys(updates);
 
   if (table === 'settings') {
-    const { data: existing } = await supabase.from(table).select('*').eq('key', id).single();
+    const { data: existing } = await supabase.from(table).select('*').eq('key', id).maybeSingle();
     const merged = deepMerge(existing?.value || {}, expanded);
     const { error } = await supabase.from(table).upsert({ key: id, value: merged, updated_at: new Date().toISOString() }, { onConflict: 'key' });
     if (error) throw error;
@@ -376,7 +393,7 @@ async function rtdbUpdate(rawPath, updates) {
     }
     // Update known fields in dashboard_accounts table
     if (Object.keys(knownUpdates).length) {
-      const { data: existing } = await supabase.from(table).select('*').eq('id', id).single();
+      const { data: existing } = await supabase.from(table).select('*').eq('id', id).maybeSingle();
       const fbData = existing ? rowToFirebase(existing, table) : { id };
       Object.assign(fbData, knownUpdates);
       const row = firebaseToRow(fbData, table);
@@ -392,7 +409,7 @@ async function rtdbUpdate(rawPath, updates) {
     return;
   }
 
-  const { data: existing } = await supabase.from(table).select('*').eq('id', id).single();
+  const { data: existing } = await supabase.from(table).select('*').eq('id', id).maybeSingle();
   const fbData = existing ? rowToFirebase(existing, table) : { id };
 
   if (parts.length > 2) {
@@ -466,7 +483,7 @@ async function rtdbRemove(rawPath) {
   }
 
   // Nested remove: read, delete key, write back
-  const { data: existing } = await supabase.from(table).select('*').eq('id', id).single();
+  const { data: existing } = await supabase.from(table).select('*').eq('id', id).maybeSingle();
   if (!existing) return;
   const fbData = rowToFirebase(existing, table);
   let cur = fbData;
@@ -487,8 +504,8 @@ app.post('/api/fb/read', async (req, res) => {
     const val = await rtdbRead(req.body.path);
     res.json({ value: val });
   } catch (e) {
-    console.error('fb/read error:', e.message);
-    res.status(500).json({ error: e.message });
+    console.error('fb/read error:', req.body.path, e.message, e.stack);
+    res.status(500).json({ error: e.message, path: req.body.path, stack: (e.stack || '').substring(0, 300) });
   }
 });
 
@@ -543,7 +560,7 @@ app.post('/api/auth/signin', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'missing fields' });
     const key = email.trim().toLowerCase().replace(/[.#$\[\]]/g, '_');
-    const { data: row, error } = await supabase.from('dashboard_accounts').select('*').eq('id', key).single();
+    const { data: row, error } = await supabase.from('dashboard_accounts').select('*').eq('id', key).maybeSingle();
 
     if (error || !row) return res.status(401).json({ code: 'auth/user-not-found', message: 'User not found' });
     if (row.status === 'inactive') return res.status(401).json({ code: 'auth/user-disabled', message: 'Account disabled' });
@@ -563,7 +580,7 @@ app.post('/api/auth/create', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'missing fields' });
     const key = email.trim().toLowerCase().replace(/[.#$\[\]]/g, '_');
-    const { data: existing } = await supabase.from('dashboard_accounts').select('*').eq('id', key).single();
+    const { data: existing } = await supabase.from('dashboard_accounts').select('*').eq('id', key).maybeSingle();
 
     if (existing) {
       if (existing.password !== password) {
@@ -615,7 +632,7 @@ app.get(['/api/settings/:key.json', '/settings/:key.json'], async (req, res) => 
   res.set('Pragma', 'no-cache');
   res.set('Expires', '0');
   try {
-    const { data, error } = await supabase.from('settings').select('value').eq('key', req.params.key).single();
+    const { data, error } = await supabase.from('settings').select('value').eq('key', req.params.key).maybeSingle();
     res.json(data?.value || null);
   } catch (e) {
     res.json(null);
@@ -626,7 +643,7 @@ app.put(['/api/settings/:key.json', '/settings/:key.json'], async (req, res) => 
   try {
     const key = req.params.key;
     const newFields = req.body;
-    const { data: existing } = await supabase.from('settings').select('value').eq('key', key).single();
+    const { data: existing } = await supabase.from('settings').select('value').eq('key', key).maybeSingle();
     const merged = { ...(existing?.value || {}), ...newFields };
     await supabase.from('settings').upsert({ key, value: merged }, { onConflict: 'key' });
     res.json({ ok: true });
@@ -708,10 +725,12 @@ app.post('/api/admin/login', async (req, res) => {
 app.get('/api/fb/poll', async (req, res) => {
   try {
     const p = normPath(req.query.path);
+    if (!p) return res.json({ value: null });
     const val = await rtdbRead(p);
     res.json({ value: val });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error('poll error:', req.query.path, e.message, e.stack);
+    res.status(500).json({ error: e.message, path: req.query.path, stack: (e.stack || '').substring(0, 300) });
   }
 });
 
