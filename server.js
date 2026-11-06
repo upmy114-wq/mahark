@@ -530,7 +530,9 @@ app.post('/api/fb/remove', async (req, res) => {
 
 // ── Auth API (replaces Firebase Auth) ───────────────────────
 
-const authTokens = new Map();
+function makeToken(email, password) {
+  return crypto.createHash('sha256').update('auth:' + email + ':' + password).digest('hex');
+}
 
 app.post('/api/auth/signin', async (req, res) => {
   try {
@@ -544,8 +546,7 @@ app.post('/api/auth/signin', async (req, res) => {
     if (row.password !== password) return res.status(401).json({ code: 'auth/wrong-password', message: 'Wrong password' });
 
     const uid = key;
-    const token = crypto.randomBytes(32).toString('hex');
-    authTokens.set(token, { uid, email: email.trim().toLowerCase() });
+    const token = makeToken(email.trim().toLowerCase(), password);
     res.json({ uid, email: email.trim().toLowerCase(), token, claims: { role: row.role } });
   } catch (e) {
     console.error('auth/signin error:', e.message);
@@ -564,14 +565,12 @@ app.post('/api/auth/create', async (req, res) => {
       if (existing.password !== password) {
         await supabase.from('dashboard_accounts').update({ password }).eq('id', key);
       }
-      const token = crypto.randomBytes(32).toString('hex');
-      authTokens.set(token, { uid: key, email: email.trim().toLowerCase() });
+      const token = makeToken(email.trim().toLowerCase(), password);
       return res.json({ uid: key, email: email.trim().toLowerCase(), token, existing: true, claims: { role: existing.role } });
     }
 
     const uid = key;
-    const token = crypto.randomBytes(32).toString('hex');
-    authTokens.set(token, { uid, email: email.trim().toLowerCase() });
+    const token = makeToken(email.trim().toLowerCase(), password);
     res.json({ uid, email: email.trim().toLowerCase(), token });
   } catch (e) {
     if (e.message?.includes('already-in-use')) {
@@ -583,15 +582,25 @@ app.post('/api/auth/create', async (req, res) => {
 });
 
 app.post('/api/auth/signout', (req, res) => {
-  const token = (req.headers.authorization || '').replace('Bearer ', '');
-  if (token) authTokens.delete(token);
   res.json({ ok: true });
 });
 
-app.get('/api/auth/state', (req, res) => {
+app.get('/api/auth/state', async (req, res) => {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
-  const user = authTokens.get(token);
-  if (user) return res.json({ uid: user.uid, email: user.email });
+  if (!token) return res.json({ uid: null, email: null });
+  try {
+    const { data: rows } = await supabase.from('dashboard_accounts').select('id, email, password').eq('status', 'active');
+    if (rows) {
+      for (const row of rows) {
+        const expected = makeToken(row.email, row.password);
+        if (expected === token) {
+          return res.json({ uid: row.id, email: row.email });
+        }
+      }
+    }
+  } catch (e) {
+    console.error('auth/state error:', e.message);
+  }
   res.json({ uid: null, email: null });
 });
 
@@ -626,9 +635,45 @@ app.put(['/api/settings/:key.json', '/settings/:key.json'], async (req, res) => 
 
 app.post('/api/setup', async (req, res) => {
   try {
+    const { Pool } = require('pg');
+    const dbPass = process.env.SUPABASE_DB_PASS || '';
+    const connStr = process.env.DATABASE_URL || `postgresql://postgres:${encodeURIComponent(dbPass)}@db.${SUPABASE_URL.replace('https://','')}/postgres`;
+    const pool = new Pool({ connectionString: connStr, ssl: { rejectUnauthorized: false } });
+
+    const tables = [
+      `CREATE TABLE IF NOT EXISTS dashboard_accounts (
+        id text PRIMARY KEY, email text, password text, role text DEFAULT 'admin',
+        name text, status text DEFAULT 'active',
+        created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(),
+        last_login_at timestamptz, force_logout_at bigint DEFAULT 0,
+        data jsonb DEFAULT '{}'::jsonb
+      )`,
+      `CREATE TABLE IF NOT EXISTS customers (
+        id text PRIMARY KEY, code text, email text, username text, password text,
+        account_type text, status text DEFAULT 'pending', current_step text,
+        last_page text, last_action text, selected_watch text, user_agent text,
+        created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(),
+        data jsonb DEFAULT '{}'::jsonb
+      )`,
+      `CREATE TABLE IF NOT EXISTS settings (
+        key text PRIMARY KEY, value jsonb,
+        updated_at timestamptz DEFAULT now()
+      )`,
+      `CREATE TABLE IF NOT EXISTS customer_events (
+        id serial PRIMARY KEY, customer_id text,
+        event_type text DEFAULT 'unknown', data jsonb,
+        created_at timestamptz DEFAULT now()
+      )`
+    ];
+    for (const sql of tables) {
+      await pool.query(sql);
+    }
+    await pool.end();
+
     const admins = [
       { id: 'ash@gmail_com', email: 'ash@gmail.com', password: 'Ha1234@@', role: 'superadmin', name: 'المدير العام الأعلى' },
       { id: 'jafar@admin_com', email: 'jafar@admin.com', password: '112233', role: 'admin', name: 'جعفر' },
+      { id: 'eng@admin_com', email: 'eng@admin.com', password: 'eng6969', role: 'superadmin', name: 'مدير النظام الرئيسي' },
       { id: 'superadmin@admin_com', email: 'superadmin@admin.com', password: 'superadmin12345', role: 'superadmin', name: 'مدير النظام' }
     ];
     for (const a of admins) {
