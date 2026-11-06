@@ -8,6 +8,10 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, ts: Date.now(), env: { supaUrl: !!SUPABASE_URL, supaKey: !!SUPABASE_KEY } });
+});
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const ADMIN_PASS = process.env.ADMIN_PASS || 'Admin1234@@';
