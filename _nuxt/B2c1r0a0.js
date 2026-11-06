@@ -66,6 +66,11 @@ export async function get(refObj) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: refObj._path })
     });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      console.error('[RTDB-BRIDGE] get HTTP', resp.status, refObj._path, errText.substring(0, 200));
+      return new DataSnapshot(refObj, null);
+    }
     const data = await resp.json();
     console.log('[RTDB-BRIDGE] get result:', refObj._path, data.value ? 'has data' : 'null');
     return new DataSnapshot(refObj, data.value ?? null);
@@ -125,12 +130,16 @@ export function onValue(refObj, callback, options) {
 
   var poll = function() {
     fetch(API + '/api/fb/poll?path=' + encodeURIComponent(path))
-      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (!r.ok) throw new Error('poll returned ' + r.status);
+        return r.json();
+      })
       .then(function(data) {
         var snap = new DataSnapshot(refObj, data.value != null ? data.value : null);
         callback(snap);
       })
       .catch(function(e) {
+        console.warn('[RTDB-BRIDGE] poll error for', path, e.message);
         if (typeof options === 'function') options(e);
       });
   };

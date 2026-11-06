@@ -77,7 +77,7 @@ export async function signInWithEmailAndPassword(auth, email, password) {
   } else {
     _authToken = data.token;
     _currentUser = user;
-    try { localStorage.setItem('_auth_token', data.token); localStorage.setItem('_auth_user', JSON.stringify({ uid: data.uid, email: data.email })); } catch(e) {}
+    try { localStorage.setItem('_auth_token', data.token); localStorage.setItem('_auth_user', JSON.stringify({ uid: data.uid, email: data.email, claims: data.claims || {} })); } catch(e) {}
     notifyAuthState();
   }
   return { user };
@@ -104,7 +104,7 @@ export async function createUserWithEmailAndPassword(auth, email, password) {
   } else {
     _authToken = data.token;
     _currentUser = user;
-    try { localStorage.setItem('_auth_token', data.token); localStorage.setItem('_auth_user', JSON.stringify({ uid: data.uid, email: data.email })); } catch(e) {}
+    try { localStorage.setItem('_auth_token', data.token); localStorage.setItem('_auth_user', JSON.stringify({ uid: data.uid, email: data.email, claims: data.claims || {} })); } catch(e) {}
     notifyAuthState();
   }
   return { user };
@@ -145,10 +145,9 @@ export async function authStateReady() {
     const saved = localStorage.getItem('_auth_user');
     const token = localStorage.getItem('_auth_token');
     if (saved && token) {
-      _currentUser = JSON.parse(saved);
-      _currentUser.getIdToken = () => Promise.resolve(token);
-      _currentUser.getIdTokenResult = () => Promise.resolve({ claims: {} });
-      _currentUser.reload = async () => {};
+      const parsed = JSON.parse(saved);
+      const savedClaims = parsed.claims || {};
+      _currentUser = { uid: parsed.uid, email: parsed.email, getIdToken: () => Promise.resolve(token), getIdTokenResult: () => Promise.resolve({ claims: savedClaims }), reload: async () => {} };
       _authToken = token;
     }
   } catch(e) {}
